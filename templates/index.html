@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Ledger Logic - A Tactical Voting and Real-Time Election Monitoring Dashboard for the 2026 Assembly.">
+    <title>[LEDGER LOGIC] Command Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'cc-bg': '#0a0c10',
+                        'cc-surface': '#12161f',
+                        'cc-border': '#1e2532',
+                        'neon-blue': '#00e5ff',
+                        'cyber-green': '#00ff9d',
+                        'crimson': '#ff3366',
+                        'cc-yellow': '#ffd700',
+                    },
+                    fontFamily: {
+                        'raj': ['Rajdhani', 'sans-serif'],
+                        'mono': ['Courier New', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0a0c10;
+            color: #f4f4f5;
+            font-family: 'Rajdhani', sans-serif;
+            overflow: hidden;
+        }
+
+        /* Scrollbars */
+        .log-container {
+            scrollbar-width: thin;
+            scrollbar-color: #1e2532 transparent;
+        }
+        .log-container::-webkit-scrollbar { width: 4px; }
+        .log-container::-webkit-scrollbar-track { background: transparent; }
+        .log-container::-webkit-scrollbar-thumb { background-color: #1e2532; border-radius: 4px; }
+
+        /* Map Container */
+        .map-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            height: 800px;
+            margin: 0 auto;
+            /* Fallback Gradient if no Maps API key */
+            background: radial-gradient(circle at center, #12161f 0%, #0a0c10 100%);
+            border-radius: 12px;
+            border: 1px solid #1e2532;
+            overflow: hidden;
+        }
+
+        #svg-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* SVG Polygons */
+        #svg-container svg {
+            width: 100%;
+            height: 100%;
+        }
+        
+        #svg-container polygon {
+            fill: #1a2035; /* default */
+            stroke: #1e2532;
+            stroke-width: 0.8;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-origin: center;
+            transform-box: fill-box;
+            cursor: crosshair;
+        }
+
+        /* Tooltip */
+        #tactical-tooltip {
+            position: fixed;
+            background: #12161f;
+            border: 1px solid #00e5ff;
+            box-shadow: 0 0 20px rgba(0,229,255,0.3);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            z-index: 50;
+            padding: 12px;
+            min-width: 200px;
+        }
+
+        /* Modals */
+        .glass-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(12px);
+            z-index: 9999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-active { display: flex !important; }
+        .step-container { display: none; }
+        .step-active { display: block; }
+
+        /* OTP Inputs */
+        .otp-input {
+            width: 3rem;
+            height: 4rem;
+            text-align: center;
+            font-size: 2rem;
+            border: 1px solid #1e2532;
+            background: #0a0c10;
+            color: #00e5ff;
+            transition: all 0.2s;
+        }
+        .otp-input:focus {
+            border-color: #00e5ff;
+            box-shadow: 0 0 10px rgba(0,229,255,0.3);
+            outline: none;
+        }
+
+        /* Ledger Row Hover */
+        .ledger-row {
+            transition: all 0.2s ease;
+            border-left: 2px solid transparent;
+        }
+        .ledger-row:hover {
+            border-left: 2px solid #00e5ff;
+            background-color: rgba(0,229,255,0.05);
+        }
+
+        /* Animations */
+        @keyframes slideDown {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .log-entry {
+            animation: slideDown 0.3s ease-out forwards;
+        }
+        
+        .pulse-crimson {
+            animation: pulseCrim 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulseCrim {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .3; }
+        }
+        /* Analytics Panel (ElectionBaba Style) */
+        #analytics-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 380px;
+            height: 100vh;
+            background: rgba(18, 22, 31, 0.95);
+            backdrop-filter: blur(10px);
+            border-left: 1px solid #1e2532;
+            z-index: 100;
+            transform: translateX(100%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+            padding: 24px;
+        }
+        #analytics-panel.open {
+            transform: translateX(0);
+        }
+        
+        polygon.selected-node {
+            stroke: #ffffff !important;
+            stroke-width: 2.5px !important;
+            filter: drop-shadow(0 0 10px #ffffff) !important;
+            z-index: 10;
+        }
+
+        /* Accessibility: Screen Reader Only */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+    </style>
+</head>
+<body class="h-screen flex text-gray-200">
+
+    <!-- NAV RAIL (60px) -->
+    <nav class="w-[60px] bg-cc-bg border-r border-cc-border flex flex-col items-center py-6 space-y-8 z-20 flex-shrink-0">
+        <div class="text-neon-blue font-bold text-xl tracking-tighter drop-shadow-[0_0_8px_rgba(0,229,255,0.5)]">LL</div>
+        
+        <!-- Active Nav Item -->
+        <button class="w-full relative py-3 text-neon-blue flex justify-center border-l-2 border-neon-blue bg-neon-blue/10" aria-label="Navigate to Home" role="button" title="Home">
+            <svg class="w-6 h-6 drop-shadow-[0_0_5px_rgba(0,229,255,0.8)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+        </button>
+        
+        <button onclick="document.getElementById('ledger-section').scrollIntoView({behavior: 'smooth'})" class="w-full relative py-3 text-gray-500 hover:text-gray-300 flex justify-center border-l-2 border-transparent hover:bg-white/5 transition-colors" aria-label="View Public Ledger" role="button" title="Database">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+        </button>
+        
+        <button onclick="toggleSourceOverlay()" class="w-full relative py-3 text-gray-500 hover:text-gray-300 flex justify-center border-l-2 border-transparent hover:bg-white/5 transition-colors mt-auto" aria-label="View Source Code" role="button" title="Source Code">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+        </button>
+    </nav>
+
+    <!-- SYSTEM HEARTBEAT SIDEBAR (300px) -->
+    <aside class="w-[300px] bg-cc-surface border-r border-cc-border flex flex-col p-4 z-10 flex-shrink-0 shadow-2xl">
+        <!-- Project Branding -->
+        <div class="mb-4 pb-4 border-b border-cc-border">
+            <div class="flex items-center space-x-2">
+                <div class="w-8 h-8 bg-neon-blue/10 border border-neon-blue/40 rounded flex items-center justify-center">
+                    <span class="text-neon-blue font-bold text-sm drop-shadow-[0_0_6px_rgba(0,229,255,0.6)]">LL</span>
+                </div>
+                <div>
+                    <div class="text-sm font-bold text-white tracking-wider">LEDGER LOGIC</div>
+                    <div class="text-[9px] text-gray-500 font-mono uppercase tracking-widest">Election Command Center</div>
+                </div>
+            </div>
+        </div>
+
+        <h2 class="text-[13px] font-bold text-neon-blue uppercase tracking-widest mb-4 flex items-center">
+            <span class="w-1.5 h-1.5 bg-neon-blue rounded-full mr-2 shadow-[0_0_8px_#00e5ff] animate-pulse"></span>
+            System Heartbeat
+        </h2>
+        
+        <div class="flex-1 flex flex-col space-y-3 overflow-hidden font-mono text-[11px]">
+            
+            <!-- Data Uploaded (Green) -->
+            <div class="flex-1 flex flex-col min-h-0 bg-cc-bg rounded border border-[#00ff9d]/30 p-3">
+                <div class="flex justify-between items-center mb-2 border-b border-[#00ff9d]/20 pb-1">
+                    <h3 class="font-bold text-cyber-green uppercase">[Data Uploaded]</h3>
+                    <button onclick="downloadLog('data_uploaded')" class="text-cyber-green/50 hover:text-cyber-green transition-colors" aria-label="Download Data Upload Logs" role="button" title="Download Log">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    </button>
+                </div>
+                <div id="log-data" class="flex-1 overflow-y-auto log-container space-y-1.5 text-cyber-green/80"></div>
+            </div>
+
+            <!-- Changes Happened (Yellow) -->
+            <div class="flex-1 flex flex-col min-h-0 bg-cc-bg rounded border border-cc-yellow/30 p-3">
+                <div class="flex justify-between items-center mb-2 border-b border-cc-yellow/20 pb-1">
+                    <h3 class="font-bold text-cc-yellow uppercase">[Changes Happened]</h3>
+                    <button onclick="downloadLog('changes_happened')" class="text-cc-yellow/50 hover:text-cc-yellow transition-colors" aria-label="Download Changes Logs" role="button" title="Download Log">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    </button>
+                </div>
+                <div id="log-changes" class="flex-1 overflow-y-auto log-container space-y-1.5 text-cc-yellow/80"></div>
+            </div>
+
+            <!-- Attacks Happened (Red) -->
+            <div class="flex-1 flex flex-col min-h-0 bg-cc-bg rounded border border-crimson/30 p-3 relative group">
+                <div id="attack-bg-pulse" class="absolute inset-0 bg-crimson/10 opacity-0 transition-opacity duration-300 pointer-events-none rounded"></div>
+                <div class="flex justify-between items-center mb-2 border-b border-crimson/20 pb-1 relative z-10">
+                    <h3 class="font-bold text-crimson uppercase flex items-center">
+                        <svg class="w-3 h-3 mr-1.5 pulse-crimson" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 16h2v2h-2zm0-6h2v4h-2z"/></svg>
+                        [Attack Happened]
+                    </h3>
+                    <button onclick="downloadLog('attack_happened')" class="text-crimson/50 hover:text-crimson transition-colors" aria-label="Download Attack Logs" role="button" title="Download Log">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    </button>
+                </div>
+                <div id="log-attack" class="flex-1 overflow-y-auto log-container space-y-1.5 text-crimson/80 relative z-10"></div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- MAIN STAGE -->
+    <main class="flex-1 overflow-y-auto bg-[#0a0c10] p-8 relative flex flex-col scroll-smooth" id="main-stage">
+        <div class="max-w-6xl mx-auto w-full">
+            
+            <!-- Header Bar -->
+            <div class="flex justify-between items-center mb-8 bg-cc-surface border border-cc-border p-4 rounded-lg shadow-xl">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-3xl font-bold text-white tracking-wider">TAMIL NADU 2026 ASSEMBLY</h1>
+                    <div class="flex items-center bg-crimson/10 border border-crimson/30 px-3 py-1 rounded text-crimson text-xs font-bold uppercase tracking-widest">
+                        <span class="w-2 h-2 bg-crimson rounded-full mr-2 pulse-crimson shadow-[0_0_5px_#ff3366]"></span>LIVE
+                    </div>
+                </div>
+                <button onclick="openVoteModal()" class="bg-neon-blue hover:bg-[#00cce6] text-[#0a0c10] font-bold py-2.5 px-8 rounded shadow-[0_0_15px_rgba(0,229,255,0.4)] transition-all uppercase tracking-widest text-sm flex items-center" aria-label="Open Voting Modal" role="button">
+                    Vote Now
+                    <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                </button>
+            </div>
+
+            <!-- Party Summary Cards -->
+            <div class="grid grid-cols-5 gap-4 mb-8" id="summaryCardsContainer">
+                <!-- Injected via JS -->
+            </div>
+
+            <!-- The Interactive Map Component -->
+            <div class="mb-12">
+                <div class="map-wrapper shadow-2xl">
+                    <div id="svg-container"></div>
+                </div>
+                <!-- Color Legend -->
+                <div class="flex items-center justify-center gap-6 mt-4 bg-cc-surface border border-cc-border rounded-lg p-3 shadow-lg">
+                    <div class="flex items-center gap-2"><div class="w-4 h-3 rounded" style="background:rgba(255,215,0,0.9)"></div><span class="text-xs text-gray-300 font-mono">Party X</span></div>
+                    <div class="flex items-center gap-2"><div class="w-4 h-3 rounded" style="background:rgba(255,51,102,0.9)"></div><span class="text-xs text-gray-300 font-mono">Party Y</span></div>
+                    <div class="flex items-center gap-2"><div class="w-4 h-3 rounded" style="background:rgba(0,255,157,0.85)"></div><span class="text-xs text-gray-300 font-mono">Party Z</span></div>
+                    <div class="flex items-center gap-2"><div class="w-4 h-3 rounded" style="background:rgba(0,229,255,0.85)"></div><span class="text-xs text-gray-300 font-mono">Party W</span></div>
+                    <div class="flex items-center gap-2"><div class="w-4 h-3 rounded" style="background:rgba(100,116,139,0.8)"></div><span class="text-xs text-gray-300 font-mono">Others</span></div>
+                </div>
+            </div>
+
+            <!-- Public Ledger -->
+            <div id="ledger-section" class="mb-12">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-xl font-bold text-white uppercase tracking-wider flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-cyber-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+                        Public Ledger
+                    </h3>
+                    <span class="text-xs font-mono text-gray-500 uppercase">Real-Time Event Stream</span>
+                </div>
+                <div class="bg-cc-surface border border-cc-border rounded-lg overflow-hidden shadow-xl">
+                    <table class="w-full text-left border-collapse text-sm">
+                        <thead class="bg-[#1a2035] text-xs uppercase text-gray-400 border-b border-cc-border font-mono">
+                            <tr>
+                                <th class="py-3 px-6 font-semibold">Voter Name</th>
+                                <th class="py-3 px-6 font-semibold">Mobile</th>
+                                <th class="py-3 px-6 font-semibold">Candidate</th>
+                                <th class="py-3 px-6 font-semibold">Constituency</th>
+                                <th class="py-3 px-6 font-semibold">Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="votesTableBody" class="divide-y divide-cc-border font-mono">
+                            <!-- Injected via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Tactical Tooltip -->
+    <div id="tactical-tooltip">
+        <div class="flex justify-between items-center border-b border-cc-border pb-2 mb-2">
+            <span id="tt-id" class="text-neon-blue font-bold text-lg leading-none"></span>
+            <span class="text-[10px] text-gray-500 font-mono">NODE_ACTIVE</span>
+        </div>
+        <div id="tt-name" class="text-white font-bold tracking-wider mb-3"></div>
+        <div class="space-y-1 text-sm font-mono text-gray-300">
+            <div class="flex justify-between"><span class="text-gray-500">Leading:</span><span id="tt-leading" class="font-bold"></span></div>
+            <div class="flex justify-between"><span class="text-gray-500">Votes:</span><span id="tt-votes"></span></div>
+        </div>
+    </div>
+
+    <!-- VOTE MODAL (Overlay Flow) -->
+    <div id="voteModal" class="glass-modal">
+        <!-- STEP 1: IDENTITY -->
+        <div id="modal-step-login" class="step-container step-active bg-cc-surface border border-cc-border rounded p-8 shadow-2xl w-full max-w-md relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-1 bg-neon-blue shadow-[0_0_10px_#00e5ff]"></div>
+            <h2 class="text-2xl font-bold text-white mb-2 tracking-wide">IDENTITY GATE</h2>
+            <p class="text-xs text-gray-400 mb-6 font-mono border-b border-cc-border pb-4">Auth Required: Enter details to receive 4-digit code.</p>
+            <form id="loginForm" class="space-y-5">
+                <div>
+                    <label for="name" class="sr-only">Full Name as Registered</label>
+                    <input type="text" id="name" name="name" placeholder="FULL NAME AS REGISTERED" required class="w-full bg-cc-bg border border-cc-border rounded px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-neon-blue focus:shadow-[0_0_10px_rgba(0,229,255,0.2)] transition-all">
+                </div>
+                <div>
+                    <label for="mobile" class="sr-only">10-Digit Mobile Number</label>
+                    <input type="text" id="mobile" name="mobile" placeholder="10-DIGIT MOBILE" required class="w-full bg-cc-bg border border-cc-border rounded px-4 py-3 text-white font-mono text-sm focus:outline-none focus:border-neon-blue focus:shadow-[0_0_10px_rgba(0,229,255,0.2)] transition-all">
+                </div>
+                <button type="submit" class="w-full bg-white hover:bg-gray-200 text-[#0a0c10] font-bold py-3 rounded transition-all uppercase tracking-widest text-sm mt-4" aria-label="Request One-Time Password" role="button">
+                    Request OTP &rarr;
+                </button>
+                <button type="button" onclick="closeVoteModal()" class="w-full text-gray-500 hover:text-white mt-2 text-xs uppercase tracking-widest">Abort</button>
+            </form>
+        </div>
+
+        <!-- STEP 2: OTP -->
+        <div id="modal-step-otp" class="step-container bg-cc-surface border border-cc-border rounded p-8 shadow-2xl w-full max-w-md relative overflow-hidden text-center">
+            <div class="absolute top-0 left-0 w-full h-1 bg-cc-yellow shadow-[0_0_10px_#ffd700]"></div>
+            <h2 class="text-2xl font-bold text-white mb-2 tracking-wide">VERIFICATION</h2>
+            <p class="text-xs text-gray-400 mb-6 font-mono border-b border-cc-border pb-4">OTP logged to SYSTEM HEARTBEAT &rarr; <span class="text-cc-yellow">CHANGES HAPPENED</span></p>
+            <form id="otpForm" class="space-y-6">
+                <div class="flex justify-center space-x-4">
+                    <label for="otp-digit-1" class="sr-only">OTP Digit 1</label>
+                    <input type="text" id="otp-digit-1" maxlength="1" class="otp-input otp-digit" required>
+                    <label for="otp-digit-2" class="sr-only">OTP Digit 2</label>
+                    <input type="text" id="otp-digit-2" maxlength="1" class="otp-input otp-digit" required>
+                    <label for="otp-digit-3" class="sr-only">OTP Digit 3</label>
+                    <input type="text" id="otp-digit-3" maxlength="1" class="otp-input otp-digit" required>
+                    <label for="otp-digit-4" class="sr-only">OTP Digit 4</label>
+                    <input type="text" id="otp-digit-4" maxlength="1" class="otp-input otp-digit" required>
+                </div>
+                <button type="submit" class="w-full bg-neon-blue hover:bg-[#00cce6] text-[#0a0c10] font-bold py-3 rounded shadow-[0_0_15px_rgba(0,229,255,0.4)] transition-all uppercase tracking-widest text-sm" aria-label="Verify OTP and Authenticate" role="button">
+                    Verify Identity
+                </button>
+                <button type="button" onclick="closeVoteModal()" class="w-full text-gray-500 hover:text-white mt-2 text-xs uppercase tracking-widest">Abort</button>
+            </form>
+        </div>
+
+        <!-- STEP 3: CANDIDATES -->
+        <div id="modal-step-candidates" class="step-container bg-cc-surface border border-cc-border rounded p-8 shadow-2xl w-full max-w-2xl relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-1 bg-cyber-green shadow-[0_0_10px_#00ff9d]"></div>
+            <h2 class="text-2xl font-bold text-white mb-2 tracking-wide text-center">CAST BALLOT</h2>
+            <p class="text-xs text-gray-400 mb-6 font-mono border-b border-cc-border pb-4 text-center">Select your candidate. Action is immutable.</p>
+            <div class="grid grid-cols-2 gap-4" id="voteCandidateCards">
+                <!-- Injected via JS -->
+            </div>
+            <button type="button" onclick="closeVoteModal()" class="mt-6 text-xs text-gray-500 hover:text-white block mx-auto uppercase tracking-widest">Cancel Process</button>
+        </div>
+    </div>
+
+    <!-- SOURCE AUDIT OVERLAY -->
+    <div id="sourceOverlay" class="fixed inset-0 bg-black/95 z-[10000] flex flex-col hidden backdrop-blur-md">
+        <div class="flex justify-between items-center p-4 border-b border-cc-border">
+            <h2 class="text-cyber-green font-mono text-lg flex items-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                app.py <span class="text-gray-600 ml-2 text-sm">// Glass-Box Audit Mode</span>
+            </h2>
+            <button onclick="toggleSourceOverlay()" class="text-crimson border border-crimson/50 hover:bg-crimson/10 px-4 py-1.5 rounded font-mono text-sm tracking-widest transition-colors" aria-label="Close Source Audit Overlay" role="button">
+                CLOSE [ESC]
+            </button>
+        </div>
+        <div class="flex-1 overflow-auto p-6"><pre class="text-[13px] font-mono text-cyber-green/90 leading-relaxed"><code id="sourceCode">Loading source...</code></pre></div>
+    </div>
+    
+    <!-- End of MAIN STAGE -->
+    </main>
+
+    <!-- ELECTIONBABA STYLE RIGHT PANEL -->
+    <div id="analytics-panel" class="fixed top-0 right-0 w-[380px] h-screen bg-[#12161f]/95 backdrop-blur-md border-l border-[#1e2532] z-[100] transform translate-x-full transition-transform duration-300 ease-in-out overflow-y-auto shadow-[-10px_0_30px_rgba(0,0,0,0.5)] p-6 flex flex-col text-gray-200">
+        <div class="flex justify-between items-start mb-6 border-b border-cc-border pb-4">
+            <div>
+                <h2 id="panel-name" class="text-2xl font-bold text-white tracking-wider">Select Node</h2>
+                <p id="panel-id" class="text-xs font-mono text-gray-400">TN-000</p>
+            </div>
+            <button onclick="closeAnalyticsPanel()" class="text-gray-500 hover:text-white bg-cc-bg p-2 rounded transition-colors" aria-label="Close Analytics Panel" role="button">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+        <!-- WINNER BLOCK -->
+        <div id="panel-winner-card" class="bg-cc-bg border-l-4 rounded p-4 mb-4 shadow-lg">
+            <div class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2 flex items-center">
+                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg>
+                Current Leader
+            </div>
+            <div id="panel-w-name" class="text-xl font-bold text-white leading-tight">--</div>
+            <div class="flex items-center space-x-2 mt-2">
+                <span id="panel-w-party" class="text-xs font-bold px-2 py-0.5 rounded">--</span>
+                <span id="panel-w-votes" class="text-sm font-mono text-gray-300">-- <span class="text-xs text-gray-500">votes</span> (<span id="panel-w-pct" class="text-white">--%</span>)</span>
+            </div>
+            <div id="panel-w-margin" class="text-xs text-cyber-green mt-3 font-bold">Leading by -- votes (--%)</div>
+        </div>
+
+        <!-- QUICK STATS -->
+        <div class="grid grid-cols-2 gap-3 mb-6">
+            <div class="bg-cc-bg border border-cc-border rounded p-3 text-center">
+                <div class="text-gray-500 text-[10px] uppercase font-bold tracking-widest mb-1">Turnout</div>
+                <div id="panel-turnout" class="text-lg font-bold text-white font-mono">--%</div>
+            </div>
+            <div class="bg-cc-bg border border-cc-border rounded p-3 text-center">
+                <div class="text-gray-500 text-[10px] uppercase font-bold tracking-widest mb-1">Candidates</div>
+                <div id="panel-candidates-count" class="text-lg font-bold text-white font-mono">--</div>
+            </div>
+        </div>
+
+        <!-- LEADERBOARD -->
+        <h3 class="text-xs text-gray-500 font-bold uppercase tracking-widest mb-3 border-b border-cc-border pb-2">Top Candidates</h3>
+        <div id="panel-candidates-list" class="space-y-3">
+            <!-- Injected dynamically -->
+        </div>
+    </div>
+
+    <script>
+        // Safe Text Setter
+        function setText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+
+        // Design Constants
+        const colorMap = {
+            'Party X': { hex: '#ffd700', bg: 'rgba(255,215,0,0.9)', text: 'text-cc-yellow', border: 'border-cc-yellow' },
+            'Party Y': { hex: '#ff3366', bg: 'rgba(255,51,102,0.9)', text: 'text-crimson', border: 'border-crimson' },
+            'Party Z': { hex: '#00ff9d', bg: 'rgba(0,255,157,0.85)', text: 'text-cyber-green', border: 'border-[#00ff9d]' },
+            'Party W': { hex: '#00e5ff', bg: 'rgba(0,229,255,0.85)', text: 'text-neon-blue', border: 'border-neon-blue' },
+            'Others':  { hex: '#64748b', bg: 'rgba(100,116,139,0.8)', text: 'text-gray-400', border: 'border-gray-500' }
+        };
+
+        // --- MAP INJECTION & INTERACTION ---
+        async function loadMap() {
+            try {
+                const res = await fetch('/api/map');
+                if(!res.ok) throw new Error("Failed to load map SVG");
+                const svgText = await res.text();
+                document.getElementById('svg-container').innerHTML = svgText;
+                setupMapInteractions();
+            } catch(e) {
+                console.error("Map load error:", e);
+                setupMapInteractions();
+            }
+        }
+
+        let globalConstituencyData = {};
+
+        function populateAnalyticsPanel() {
+            if (!selectedConstituencyId || !globalConstituencyData[selectedConstituencyId]) return;
+            const data = globalConstituencyData[selectedConstituencyId];
+            const colors = colorMap[data.party] || colorMap['Others'];
+
+            setText('panel-name', data.name);
+            setText('panel-id', `TN-${data.id}`);
+
+            if (!data.candidates || data.candidates.length === 0) return;
+
+            const winner = data.candidates[0];
+            const card = document.getElementById('panel-winner-card');
+            if (card) card.className = `bg-cc-bg border-l-4 ${colors.border} rounded p-4 mb-4 shadow-lg`;
+            
+            setText('panel-w-name', winner.name);
+            
+            const badge = document.getElementById('panel-w-party');
+            if (badge) {
+                badge.textContent = winner.party;
+                badge.style.backgroundColor = colors.bg;
+                badge.className = `text-xs font-bold px-2 py-0.5 rounded ${colors.text}`;
+            }
+            
+            setText('panel-w-votes', winner.votes.toLocaleString());
+            setText('panel-w-pct', winner.percentage + '%');
+            
+            const marginEl = document.getElementById('panel-w-margin');
+            if (marginEl) {
+                marginEl.textContent = `Leading by ${data.margin.toLocaleString()} votes (${data.margin_percentage}%)`;
+                marginEl.className = `text-xs mt-3 font-bold ${colors.text}`;
+            }
+
+            setText('panel-turnout', data.turnout + '%');
+            setText('panel-candidates-count', data.total_candidates);
+
+            const list = document.getElementById('panel-candidates-list');
+            if (list) {
+                list.innerHTML = '';
+                data.candidates.forEach((cand, index) => {
+                    const cColors = colorMap[cand.party] || colorMap['Others'];
+                    list.innerHTML += `
+                        <div class="bg-cc-surface border border-cc-border rounded p-3 flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <span class="text-xs font-mono text-gray-500 w-4">${cand.rank}</span>
+                                <div class="w-2 h-2 rounded-full" style="background-color: ${cColors.hex}"></div>
+                                <div>
+                                    <div class="font-bold text-sm text-white">${cand.name}</div>
+                                    <div class="text-[10px] ${cColors.text}">${cand.party}</div>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="font-bold text-sm text-white">${cand.votes.toLocaleString()}</div>
+                                <div class="text-[10px] text-gray-400 font-mono">${cand.percentage}%</div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+        }
+
+        // --- LIVE DATA CYCLE ---
+        let selectedConstituencyId = null;
+
+        function setupMapInteractions() {
+            const svgElement = document.querySelector('#svg-container svg');
+            if (svgElement) {
+                svgPanZoom(svgElement, {
+                    zoomEnabled: true, controlIconsEnabled: true, fit: true, center: true, minZoom: 0.5, maxZoom: 10, zoomScaleSensitivity: 0.2
+                });
+            }
+
+            const polygons = document.querySelectorAll('#svg-container polygon[data-id]');
+            const tt = document.getElementById('tactical-tooltip');
+            
+            polygons.forEach(p => {
+                p.addEventListener('mouseenter', (e) => {
+                    if (p.classList.contains('selected-node')) return;
+                    p.style.transform = 'scale(1.08)';
+                    p.style.stroke = '#00e5ff';
+                    p.style.strokeWidth = '2';
+                    p.style.filter = 'drop-shadow(0 0 8px #00e5ff)';
+                    
+                    document.getElementById('tt-id').textContent = `TN-${p.getAttribute('data-id')}`;
+                    document.getElementById('tt-name').textContent = p.getAttribute('data-name');
+                    document.getElementById('tt-leading').textContent = p.getAttribute('data-leading') || 'Pending';
+                    document.getElementById('tt-votes').textContent = p.getAttribute('data-votes') || '0';
+                    document.getElementById('tt-leading').className = `font-bold ${colorMap[p.getAttribute('data-leading')]?.text || 'text-gray-400'}`;
+                    tt.style.opacity = '1';
+                });
+
+                p.addEventListener('mousemove', (e) => {
+                    tt.style.left = (e.clientX + 15) + 'px';
+                    tt.style.top = (e.clientY + 15) + 'px';
+                });
+
+                p.addEventListener('mouseleave', () => {
+                    if (!p.classList.contains('selected-node')) {
+                        p.style.transform = ''; p.style.stroke = ''; p.style.strokeWidth = ''; p.style.filter = '';
+                    }
+                    tt.style.opacity = '0';
+                });
+
+                p.addEventListener('click', (e) => {
+                    polygons.forEach(poly => {
+                        poly.classList.remove('selected-node');
+                        poly.style.transform = ''; poly.style.stroke = ''; poly.style.filter = '';
+                    });
+                    
+                    p.classList.add('selected-node');
+                    selectedConstituencyId = parseInt(p.getAttribute('data-id'));
+                    populateAnalyticsPanel();
+                    const panel = document.getElementById('analytics-panel');
+                    if (panel) { panel.classList.remove('translate-x-full'); panel.classList.add('translate-x-0'); }
+                });
+            });
+        }
+        loadMap();
+
+        function closeAnalyticsPanel() {
+            selectedConstituencyId = null;
+            const panel = document.getElementById('analytics-panel');
+            if (panel) { panel.classList.remove('translate-x-0'); panel.classList.add('translate-x-full'); }
+            
+            document.querySelectorAll('#svg-container polygon').forEach(p => {
+                p.classList.remove('selected-node');
+                p.style.transform = ''; p.style.stroke = ''; p.style.filter = '';
+            });
+        }
+
+        // --- LIVE DATA CYCLE ---
+        async function refreshDashboard() {
+            try {
+                const res = await fetch('/api/data');
+                const data = await res.json();
+                
+                // 1. Update Party Summary Cards
+                const container = document.getElementById('summaryCardsContainer');
+                const voteCards = document.getElementById('voteCandidateCards');
+                if (container.children.length === 0) { // First load
+                    container.innerHTML = ''; voteCards.innerHTML = '';
+                    data.stats.forEach(stat => {
+                        const colors = colorMap[stat.name];
+                        // Dashboard Card - Seats first, then percentage
+                        container.innerHTML += `
+                            <div class="bg-cc-surface border-t-2 ${colors.border} rounded-b-lg border-x border-b border-x-cc-border border-b-cc-border p-4 shadow-lg">
+                                <div class="text-sm font-bold text-white mb-2 tracking-wider">${stat.name}</div>
+                                <div class="flex items-baseline space-x-1 mb-1"><span class="text-2xl font-bold ${colors.text}" id="stat-seats-${stat.name}">${stat.seats}</span><span class="text-xs text-gray-500">seats</span></div>
+                                <div class="text-xs font-mono text-gray-400"><span id="stat-pct-${stat.name}" class="text-white">${stat.percentage}</span>% vote share</div>
+                            </div>
+                        `;
+                        // Modal Card
+                        voteCards.innerHTML += `
+                            <button type="button" onclick="submitVote('${stat.name}')" class="bg-cc-bg border border-cc-border rounded p-6 hover:border-[${colors.hex}] hover:shadow-[0_0_15px_${colors.bg}] transition-all text-left group" aria-label="Cast Vote for ${stat.name}" role="button">
+                                <div class="text-lg font-bold ${colors.text} mb-1">${stat.name}</div>
+                                <div class="text-xs text-gray-500 font-mono">Current Share: <span id="modal-pct-${stat.name}">${stat.percentage}%</span></div>
+                            </button>
+                        `;
+                    });
+                } else { // Soft update
+                    data.stats.forEach(stat => {
+                        document.getElementById(`stat-pct-${stat.name}`).textContent = stat.percentage;
+                        document.getElementById(`stat-seats-${stat.name}`).textContent = stat.seats;
+                        document.getElementById(`modal-pct-${stat.name}`).textContent = stat.percentage + '%';
+                    });
+                }
+
+                // 2. Re-color SVG Map Shapes & Update Global Data
+                data.constituencies.forEach(c => {
+                    globalConstituencyData[c.id] = c;
+                    const el = document.getElementById(`constituency-${c.id}`);
+                    if (el) {
+                        el.setAttribute('data-leading', c.party);
+                        el.setAttribute('data-votes', c.votes);
+                        el.style.fill = colorMap[c.party]?.bg || colorMap['Others'].bg;
+                    }
+                });
+
+                // Update right panel if it's open
+                if (selectedConstituencyId) {
+                    populateAnalyticsPanel();
+                }
+
+                // 3. Update Ledger
+                const tbody = document.getElementById('votesTableBody');
+                tbody.innerHTML = '';
+                data.votes.forEach((v, i) => {
+                    const d = new Date(v.timestamp + 'Z');
+                    const bg = i % 2 === 0 ? 'bg-[#12161f]' : 'bg-transparent';
+                    tbody.innerHTML += `
+                        <tr class="ledger-row ${bg}">
+                            <td class="py-3 px-6 text-cyber-green">${v.name}</td>
+                            <td class="py-3 px-6 text-gray-500">${v.mobile}</td>
+                            <td class="py-3 px-6 text-white font-bold">${v.candidate}</td>
+                            <td class="py-3 px-6 text-gray-400">TN-${v.constituency_id}</td>
+                            <td class="py-3 px-6 text-gray-600 text-xs">${d.toLocaleTimeString([],{hour12:false})}</td>
+                        </tr>
+                    `;
+                });
+
+                // 4. Update Sidebar Logs
+                renderLogs('log-data', data.logs.filter(l => l.type === 'data_uploaded'), '<span class="text-gray-600 mr-2">▲</span>');
+                renderLogs('log-changes', data.logs.filter(l => l.type === 'changes_happened'), '<span class="text-gray-600 mr-2">◆</span>');
+                
+                const attackLogs = data.logs.filter(l => l.type === 'attack_happened');
+                const lastAttackCount = parseInt(document.getElementById('log-attack').getAttribute('data-count') || '0');
+                if (attackLogs.length > lastAttackCount) {
+                    const pulse = document.getElementById('attack-bg-pulse');
+                    pulse.classList.remove('opacity-0'); pulse.classList.add('opacity-100');
+                    setTimeout(() => { pulse.classList.remove('opacity-100'); pulse.classList.add('opacity-0'); }, 1500);
+                }
+                document.getElementById('log-attack').setAttribute('data-count', attackLogs.length);
+                renderLogs('log-attack', attackLogs, '<span class="text-gray-600 mr-2">⚠</span>');
+
+            } catch (err) { console.error("Data refresh error:", err); }
+        }
+
+        function renderLogs(containerId, logs, prefix) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            logs.reverse().forEach(log => {
+                const d = new Date(log.timestamp + 'Z');
+                container.innerHTML += `<div class="log-entry">${prefix}[${d.toLocaleTimeString([],{hour12:false})}] ${log.message}</div>`;
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        setInterval(refreshDashboard, 3000);
+        setTimeout(refreshDashboard, 500); // Initial fast load
+
+        // --- MODAL & AUTH FLOW ---
+        function openVoteModal() { document.getElementById('voteModal').classList.add('modal-active'); showStep('login'); }
+        function closeVoteModal() { document.getElementById('voteModal').classList.remove('modal-active'); }
+        function showStep(stepId) {
+            document.querySelectorAll('.step-container').forEach(el => el.classList.remove('step-active'));
+            document.getElementById('modal-step-' + stepId).classList.add('step-active');
+            if(stepId === 'otp') document.querySelector('.otp-digit').focus();
+        }
+
+        // OTP Input Auto-advance
+        const otpInputs = document.querySelectorAll('.otp-digit');
+        otpInputs.forEach((input, index) => {
+            input.addEventListener('input', () => {
+                if(input.value.length === 1 && index < otpInputs.length - 1) otpInputs[index + 1].focus();
+            });
+            input.addEventListener('keydown', (e) => {
+                if(e.key === 'Backspace' && input.value === '' && index > 0) otpInputs[index - 1].focus();
+            });
+        });
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('name').value;
+            const mobile = document.getElementById('mobile').value;
+            const res = await fetch('/api/request_otp', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, mobile}) });
+            if (res.ok) { showStep('otp'); refreshDashboard(); }
+            else { closeVoteModal(); refreshDashboard(); } // Error logged to attacks
+        });
+
+        document.getElementById('otpForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const otp = Array.from(otpInputs).map(i => i.value).join('');
+            const res = await fetch('/api/verify_otp', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({otp}) });
+            if (res.ok) { showStep('candidates'); refreshDashboard(); }
+            else { closeVoteModal(); refreshDashboard(); }
+        });
+
+        async function submitVote(candidate) {
+            await fetch('/api/vote', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({candidate}) });
+            closeVoteModal();
+            refreshDashboard();
+        }
+
+        // --- SOURCE OVERLAY ---
+        function toggleSourceOverlay() {
+            const o = document.getElementById('sourceOverlay');
+            if (o.classList.contains('hidden')) {
+                o.classList.remove('hidden');
+                fetch('/api/source').then(r => r.json()).then(d => document.getElementById('sourceCode').textContent = d.source || d.error);
+            } else {
+                o.classList.add('hidden');
+            }
+        }
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('sourceOverlay').classList.add('hidden'); });
+
+        // --- LOG DOWNLOAD ---
+        function downloadLog(logType) {
+            window.open('/api/download_logs?type=' + logType, '_blank');
+        }
+
+    </script>
+</body>
+</html>
