@@ -6,7 +6,7 @@ import hashlib
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, g, session, send_file
+from flask import Flask, render_template, request, jsonify, g, session, send_file, make_response
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_cyfocus_key'
@@ -116,13 +116,46 @@ def init_db():
 init_db()
 
 @app.before_request
+def security_monitor():
+    """Security Middleware: Detects and blocks malicious input attempts.
+    Logs every hack attempt to Firebase for Live Threat Telemetry."""
+    suspicious_keywords = ["<script>", "admin", "SELECT *", "DROP TABLE", "UNION SELECT", "../", "etc/passwd"]
+    request_data = str(request.args) + str(request.form)
+
+    if any(keyword.lower() in request_data.lower() for keyword in suspicious_keywords):
+        # Mask IP for privacy, keep last octet for geo-tracking
+        ip_parts = (request.remote_addr or '0.0.0.0').split('.')
+        masked_ip = 'XXX.XXX.' + ip_parts[-1] if len(ip_parts) >= 1 else 'XXX.XXX.0'
+
+        # Log to local DB
+        log_event('attack_happened', f'THREAT: Malicious Input Detected | IP: {masked_ip} | Path: {request.path}')
+
+        # Log to Firebase for Live Threat Telemetry
+        if db_firestore:
+            try:
+                db_firestore.collection('hack_attempts').add({
+                    'type': 'Malicious Input Detected',
+                    'ip_masked': masked_ip,
+                    'timestamp': datetime.now(),
+                    'path': request.path,
+                    'payload_signature': 'BLOCKED'
+                })
+            except Exception as e:
+                print(f"Firebase hack log error: {e}")
+
+        return "Security Violation Logged.", 403
+
+@app.before_request
 def log_request_info():
     if request.path == '/' and request.method == 'GET':
         log_event('changes_happened', 'Main Route Accessed')
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    response = make_response(render_template('index.html'))
+    # Efficiency Boost: Cache static elements for 5 minutes for mobile low-bandwidth networks
+    response.headers['Cache-Control'] = 'public, max-age=300'
+    return response
 
 @app.route('/api/map')
 def api_map():
@@ -336,6 +369,28 @@ def api_download_logs():
         mimetype='text/plain',
         headers={'Content-Disposition': f'attachment; filename=ledger_logic_{log_type}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'}
     )
+
+# --- TELECASTING: Live Count Endpoint (High-Efficiency, Lightweight) ---
+@app.route('/api/live-count')
+def api_live_count():
+    """Lightweight endpoint for real-time telecasting. 
+    Returns only the total vote count for maximum mobile efficiency."""
+    db = get_db()
+    cursor = db.execute('SELECT COUNT(*) as total FROM votes')
+    total = cursor.fetchone()['total']
+    
+    # Sync to Firebase for public telecasting
+    if db_firestore:
+        try:
+            db_firestore.collection('telecast').document('live_count').set({
+                'total_votes': total,
+                'last_updated': datetime.now(),
+                'status': 'TELECASTING'
+            })
+        except Exception as e:
+            print(f"Telecast sync error: {e}")
+    
+    return jsonify({'total_votes': total, 'status': 'live'})
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
