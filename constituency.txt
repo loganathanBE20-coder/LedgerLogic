@@ -1,0 +1,322 @@
+Tiruvallur	1	Gummidipoondi											
+2	Ponneri (SC)											
+3	Tiruttani											
+4	Thiruvallur											
+5	Poonamallee (SC)											
+6	Avadi											
+
+Chennai
+7	Maduravoyal											
+8	Ambattur											
+9	Madavaram											
+10	Thiruvottiyur											
+11	Dr. Radhakrishnan Nagar											
+12	Perambur											
+13	Kolathur											
+14	Villivakkam											
+15	Thiru-Vi-Ka-Nagar (SC)											
+16	Egmore (SC)											
+17	Royapuram											
+18	Harbour											
+19	Chepauk-Thiruvallikeni											
+20	Thousand Lights											
+21	Anna Nagar											
+22	Virugambakkam											
+23	Saidapet											
+24	Thiyagarayanagar											
+25	Mylapore											
+26	Velachery											
+27	Shozhinganallur											
+28	Alandur	
+										
+Kanchipuram
+29	Sriperumbudur (SC)
+											
+Chengalpattu	
+30	Pallavaram											
+31	Tambaram											
+32	Chengalpattu											
+33	Thiruporur											
+34	Cheyyur (SC)											
+35	Madurantakam (SC)
+											
+Kanchipuram	
+36	Uthiramerur											
+37	Kancheepuram	
+										
+Ranipet
+38	Arakkonam (SC)											
+39	Sholinghur
+											
+Vellore	
+40	Katpadi	
+										
+Ranipet	
+41	Ranipet									
+42	Arcot	
+										
+Vellore	
+43	Vellore											
+44	Anaikattu											
+45	Kilvaithinankuppam (SC)											
+46	Gudiyattam (SC)	
+										
+Tirupathur	
+47	Vaniyambadi											
+48	Ambur											
+49	Jolarpet											
+50	Tirupattur
+											
+Krishnagiri	
+51	Uthangarai (SC)											
+52	Bargur											
+53	Krishnagiri											
+54	Veppanahalli											
+55	Hosur											
+56	Thalli
+											
+Dharmapuri	
+57	Palacode											
+58	Pennagaram											
+59	Dharmapuri											
+60	Pappireddippatti											
+61	Harur (SC)
+											
+Tiruvannamalai	
+62	Chengam (SC)											
+63	Tiruvannamalai											
+64	Kilpennathur											
+65	Kalasapakkam											
+66	Polur											
+67	Arani											
+68	Cheyyar											
+69	Vandavasi (SC)
+											
+Viluppuram	
+70	Gingee											
+71	Mailam											
+72	Tindivanam											
+73	Vanur (SC)											
+74	Villupuram											
+75	Vikravandi											
+76	Tirukkoyilur
+											
+Kallakurichi	
+77	Ulundurpettai											
+78	Rishivandiyam											
+79	Sankarapuram											
+80	Kallakurichi (SC)
+											
+Salem	
+81	Gangavalli (SC)											
+82	Attur (SC)											
+83	Yercaud (ST)											
+84	Omalur											
+85	Mettur											
+86	Edappadi											
+87	Sankari											
+88	Salem (West)											
+89	Salem (North)											
+90	Salem (South)											
+91	Veerapandi
+											
+Namakkal	
+92	Rasipuram (SC)											
+93	Senthamangalam (ST)											
+94	Namakkal											
+95	Paramathi-Velur											
+96	Tiruchengodu											
+97	Kumarapalayam	
+										
+Erode	
+98	Erode (East)											
+99	Erode (West)											
+100	Modakkurichi
+											
+Tiruppur	
+101	Dharapuram (SC)											
+102	Kangayam
+											
+Erode	
+103	Perundurai											
+104	Bhavani											
+105	Anthiyur											
+106	Gobichettipalayam											
+107	Bhavanisagar (SC)
+											
+Nilgiris	
+108	Udhagamandalam											
+109	Gudalur (SC)											
+110	Coonoor
+											
+Coimbatore	
+111	Mettupalayam	
+										
+Tiruppur	
+112	Avanashi (SC)											
+113	Tiruppur (North)											
+114	Tiruppur (South)											
+115	Palladam
+											
+Coimbatore	
+116	Sulur											
+117	Kavundampalayam											
+118	Coimbatore (North)											
+119	Thondamuthur											
+120	Coimbatore (South)											
+121	Singanallur											
+122	Kinathukadavu											
+123	Pollachi											
+124	Valparai (SC)
+											
+Tiruppur	
+125	Udumalaipettai											
+126	Madathukulam
+											
+Dindigul	
+127	Palani											
+128	Oddanchatram											
+129	Athoor											
+130	Nilakottai (SC)											
+131	Natham											
+132	Dindigul											
+133	Vedasandur
+											
+Karur	
+134	Aravakurichi											
+135	Karur											
+136	Krishnarayapuram (SC)											
+137	Kulithalai
+											
+Tiruchirappalli	
+138	Manapaarai											
+139	Srirangam											
+140	Tiruchirappalli (West)											
+141	Tiruchirappalli (East)											
+142	Thiruverumbur											
+143	Lalgudi											
+144	Manachanallur											
+145	Musiri											
+146	Thuraiyur (SC)
+											
+Perambalur	
+147	Perambalur (SC)											
+148	Kunnam
+											
+Ariyalur	
+149	Ariyalur											
+150	Jayankondam
+											
+Cuddalore	
+151	Tittakudi (SC)											
+152	Virudhachalam											
+153	Neyveli											
+154	Panruti											
+155	Cuddalore											
+156	Kurinjipadi											
+157	Bhuvanagiri											
+158	Chidambaram											
+159	Kattumannarkoil (SC)
+											
+Mayiladuthurai	
+160	Sirkazhi (SC)											
+161	Mayiladuthurai											
+162	Poompuhar
+											
+Nagapattinam	
+163	Nagapattinam											
+164	Kilvelur (SC)											
+165	Vedaranyam
+											
+Tiruvarur	
+166	Thiruthuraipoondi (SC)											
+167	Mannargudi											
+168	Thiruvarur											
+169	Nannilam
+											
+Thanjavur	
+170	Thiruvidaimarudur (SC)											
+171	Kumbakonam											
+172	Papanasam											
+173	Thiruvaiyaru											
+174	Thanjavur											
+175	Orathanadu											
+176	Pattukkottai											
+177	Peravurani
+											
+Pudukkottai	
+178	Gandarvakottai (SC)											
+179	Viralimalai											
+180	Pudukkottai											
+181	Thirumayam											
+182	Alangudi											
+183	Aranthangi
+											
+Sivaganga	
+184	Karaikudi											
+185	Tiruppattur											
+186	Sivaganga											
+187	Manamadurai (SC)
+											
+Madurai	
+188	Melur											
+189	Madurai East											
+190	Sholavandan (SC)											
+191	Madurai North											
+192	Madurai South											
+193	Madurai Central											
+194	Madurai West											
+195	Thiruparankundram											
+196	Thirumangalam											
+197	Usilampatti
+											
+Theni	
+198	Andipatti											
+199	Periyakulam (SC)											
+200	Bodinayakanur											
+201	Cumbum
+											
+Virudhunagar	
+202	Rajapalayam											
+203	Srivilliputhur (SC)											
+204	Sattur											
+205	Sivakasi											
+206	Virudhunagar											
+207	Aruppukkottai											
+208	Tiruchuli
+											
+Ramanathapuram	
+209	Paramakudi (SC)											
+210	Tiruvadanai											
+211	Ramanathapuram											
+212	Mudhukulathur	
+										
+Thoothukudi	
+213	Vilathikulam											
+214	Thoothukkudi											
+215	Tiruchendur											
+216	Srivaikuntam											
+217	Ottapidaram (SC)											
+218	Kovilpatti
+											
+Tenkasi	
+219	Sankarankovil (SC)											
+220	Vasudevanallur (SC)											
+221	Kadayanallur											
+222	Tenkasi											
+223	Alangulam
+											
+Tirunelveli	
+224	Tirunelveli											
+225	Ambasamudram											
+226	Palayamkottai											
+227	Nanguneri											
+228	Radhapuram
+											
+Kanyakumari	
+229	Kanniyakumari											
+230	Nagercoil											
+231	Colachal											
+232	Padmanabhapuram											
+233	Vilavancode											
+234	Killiyoor
