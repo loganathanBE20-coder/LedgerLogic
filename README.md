@@ -81,6 +81,15 @@ To ensure 100% public trust, Ledger Logic provides a real-time, public audit tra
    - Every update, patch, or configuration change to the voting engine is logged to the Google Cloud.
    - This prevents "backdoor" changes during the election process.
 
+🤖 The Digital Electoral Navigator
+To align with the goals of civic education, LedgerLogic includes an interactive AI assistant designed to guide "laymen" through the complexities of the digital election process.
+
+Educational Capabilities:
+Legal Rights (Section 49A): The assistant provides clear, conversational explanations of Section 49A of the penal code, ensuring users understand their protections if their vote is proxied or tampered with.
+
+OTP & Identity Security: Beyond just verifying users, the assistant educates voters on how 4-digit OTP authentication acts as a digital safeguard to prevent identity theft and ensure "One Person, One Vote."
+
+Transparency Education: It breaks down the technical "Radical Transparency Protocol" into simple terms, explaining how real-time audit trails and public ledgers prevent fraud.
 3. **Live Threat Telemetry (Hack Defense):** 
    - Every unauthorized access attempt, SQL injection, or DDoS signature is telecasted live.
    - By making attacks public, we ensure that security is not just a promise, but a visible reality.
