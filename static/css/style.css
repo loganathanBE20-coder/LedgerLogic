@@ -170,6 +170,44 @@ polygon.selected-node {
     border-width: 0;
 }
 
+/* ── Skip-to-Content Link (WCAG 2.4.1) ──────────────────── */
+.skip-to-content {
+    position: absolute;
+    top: -100%;
+    left: 16px;
+    z-index: 99999;
+    background: #00e5ff;
+    color: #0a0c10;
+    padding: 12px 24px;
+    border-radius: 0 0 8px 8px;
+    font-weight: 700;
+    font-size: 14px;
+    text-decoration: none;
+    letter-spacing: 1px;
+    transition: top 0.2s ease;
+}
+.skip-to-content:focus {
+    top: 0;
+    outline: 3px solid #00ff9d;
+    outline-offset: 2px;
+}
+
+/* ── Focus Visible (WCAG 2.4.7) ──────────────────────────── */
+*:focus-visible {
+    outline: 2px solid #00e5ff;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid #00e5ff;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.2);
+}
+
 
 /* ============================================================
    DIGITAL ELECTORAL NAVIGATOR — Live Product Tour Styles

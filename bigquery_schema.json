@@ -1,0 +1,40 @@
+{
+  "dataset": "ledgerlogic_analytics",
+  "tables": {
+    "votes_raw": {
+      "description": "Immutable append-only audit ledger of all votes cast. Never updated, only inserted.",
+      "schema": [
+        {"name": "vote_id", "type": "STRING", "mode": "REQUIRED", "description": "Unique vote identifier (UUID)"},
+        {"name": "name_hashed", "type": "STRING", "mode": "REQUIRED", "description": "SHA-256 hash of voter name (first 10 chars)"},
+        {"name": "candidate", "type": "STRING", "mode": "REQUIRED", "description": "Candidate/party voted for"},
+        {"name": "constituency_id", "type": "INTEGER", "mode": "REQUIRED", "description": "Tamil Nadu constituency ID (1-234)"},
+        {"name": "party", "type": "STRING", "mode": "NULLABLE", "description": "Party of the candidate"},
+        {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED", "description": "UTC timestamp of vote cast"},
+        {"name": "session_id", "type": "STRING", "mode": "NULLABLE", "description": "Flask session identifier (hashed)"}
+      ]
+    },
+    "security_events": {
+      "description": "Full attack telemetry for forensic analysis of threat attempts.",
+      "schema": [
+        {"name": "event_id", "type": "STRING", "mode": "REQUIRED", "description": "Unique event identifier (UUID)"},
+        {"name": "event_type", "type": "STRING", "mode": "REQUIRED", "description": "MALICIOUS_INPUT / DUPLICATE_VOTE / INVALID_OTP / RATE_LIMIT_HIT"},
+        {"name": "masked_ip", "type": "STRING", "mode": "NULLABLE", "description": "Privacy-masked IP (XXX.XXX.x)"},
+        {"name": "path", "type": "STRING", "mode": "NULLABLE", "description": "Request path targeted"},
+        {"name": "payload_signature", "type": "STRING", "mode": "NULLABLE", "description": "Blocked payload summary"},
+        {"name": "severity", "type": "STRING", "mode": "NULLABLE", "description": "NLP-classified: LOW / MEDIUM / HIGH / CRITICAL"},
+        {"name": "sentiment_score", "type": "FLOAT", "mode": "NULLABLE", "description": "NLP sentiment magnitude"},
+        {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED", "description": "UTC timestamp of event"}
+      ]
+    },
+    "constituency_hourly_stats": {
+      "description": "Historical hourly snapshots for trend charts on dashboard.",
+      "schema": [
+        {"name": "constituency_id", "type": "INTEGER", "mode": "REQUIRED", "description": "Tamil Nadu constituency ID (1-234)"},
+        {"name": "party_leader", "type": "STRING", "mode": "NULLABLE", "description": "Current leading party"},
+        {"name": "total_votes", "type": "INTEGER", "mode": "REQUIRED", "description": "Total votes at snapshot time"},
+        {"name": "turnout_pct", "type": "FLOAT", "mode": "NULLABLE", "description": "Turnout percentage"},
+        {"name": "snapshot_hour", "type": "TIMESTAMP", "mode": "REQUIRED", "description": "Snapshot timestamp (hourly)"}
+      ]
+    }
+  }
+}

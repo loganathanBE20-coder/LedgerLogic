@@ -2,3 +2,13 @@ flask
 firebase_admin
 requests
 gunicorn
+google-generativeai
+flask-compress
+flask-caching
+flask-limiter
+google-cloud-logging
+google-cloud-bigquery
+google-cloud-language
+vertexai
+python-dotenv
+pytest

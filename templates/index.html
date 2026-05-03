@@ -7,6 +7,11 @@
     <title>[LEDGER LOGIC] Command Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    <link rel="dns-prefetch" href="https://www.gstatic.com">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
     <script>
@@ -34,8 +39,11 @@
 </head>
 <body class="h-screen flex text-gray-200">
 
+    <!-- Skip-to-Content Link (WCAG 2.4.1) -->
+    <a href="#main-stage" class="skip-to-content">Skip to main content</a>
+
     <!-- NAV RAIL (60px) -->
-    <nav class="w-[60px] bg-cc-bg border-r border-cc-border flex flex-col items-center py-6 space-y-8 z-20 flex-shrink-0">
+    <nav class="w-[60px] bg-cc-bg border-r border-cc-border flex flex-col items-center py-6 space-y-8 z-20 flex-shrink-0" aria-label="Primary navigation">
         <div class="text-neon-blue font-bold text-xl tracking-tighter drop-shadow-[0_0_8px_rgba(0,229,255,0.5)]">LL</div>
         
         <!-- Active Nav Item -->
@@ -53,7 +61,7 @@
     </nav>
 
     <!-- SYSTEM HEARTBEAT SIDEBAR (300px) -->
-    <aside class="w-[300px] bg-cc-surface border-r border-cc-border flex flex-col p-4 z-10 flex-shrink-0 shadow-2xl">
+    <aside class="w-[300px] bg-cc-surface border-r border-cc-border flex flex-col p-4 z-10 flex-shrink-0 shadow-2xl" aria-label="System Heartbeat Monitor">
         <!-- Project Branding -->
         <div class="mb-4 pb-4 border-b border-cc-border">
             <div class="flex items-center space-x-2">
@@ -82,7 +90,7 @@
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                     </button>
                 </div>
-                <div id="log-data" class="flex-1 overflow-y-auto log-container space-y-1.5 text-cyber-green/80"></div>
+                <div id="log-data" class="flex-1 overflow-y-auto log-container space-y-1.5 text-cyber-green/80" role="log" aria-live="polite" aria-label="Data upload events"></div>
             </div>
 
             <!-- Changes Happened (Yellow) -->
@@ -93,7 +101,7 @@
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                     </button>
                 </div>
-                <div id="log-changes" class="flex-1 overflow-y-auto log-container space-y-1.5 text-cc-yellow/80"></div>
+                <div id="log-changes" class="flex-1 overflow-y-auto log-container space-y-1.5 text-cc-yellow/80" role="log" aria-live="polite" aria-label="System change events"></div>
             </div>
 
             <!-- Attacks Happened (Red) -->
@@ -108,13 +116,13 @@
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                     </button>
                 </div>
-                <div id="log-attack" class="flex-1 overflow-y-auto log-container space-y-1.5 text-crimson/80 relative z-10"></div>
+                <div id="log-attack" class="flex-1 overflow-y-auto log-container space-y-1.5 text-crimson/80 relative z-10" role="log" aria-live="assertive" aria-label="Security threat events"></div>
             </div>
         </div>
     </aside>
 
     <!-- MAIN STAGE -->
-    <main class="flex-1 overflow-y-auto bg-[#0a0c10] p-8 relative flex flex-col scroll-smooth" id="main-stage">
+    <main class="flex-1 overflow-y-auto bg-[#0a0c10] p-8 relative flex flex-col scroll-smooth" id="main-stage" role="main" aria-label="Election Dashboard">
         <div class="max-w-6xl mx-auto w-full">
             
             <!-- Header Bar -->
@@ -139,7 +147,7 @@
             <!-- The Interactive Map Component -->
             <div class="mb-12">
                 <div class="map-wrapper shadow-2xl">
-                    <div id="svg-container"></div>
+                    <div id="svg-container" role="img" aria-label="Interactive map of 234 Tamil Nadu constituencies color-coded by leading party"></div>
                 </div>
                 <!-- Color Legend -->
                 <div class="flex items-center justify-center gap-6 mt-4 bg-cc-surface border border-cc-border rounded-lg p-3 shadow-lg">
@@ -672,9 +680,9 @@
     <span id="live-count" style="display:none;">0</span>
 
     <!-- Digital Electoral Navigator — Live Product Tour -->
-    <script src="/static/js/navigator.js"></script>
+    <script src="/static/js/navigator.js" defer></script>
 
     <!-- Electoral Assistant — Floating Chat Widget -->
-    <script src="/static/js/chatwidget.js"></script>
+    <script src="/static/js/chatwidget.js" defer></script>
 </body>
 </html>

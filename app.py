@@ -1,28 +1,100 @@
+"""LedgerLogic — Transparent Digital Voting Dashboard for Tamil Nadu 2026.
+
+Solves the 'black box' problem in digital elections by making everything
+public: live vote counts, audit logs, and live-streamed attack attempts.
+Visibility is the primary security measure.
+"""
+
 import os
 import sqlite3
 import random
 import string
 import hashlib
+import logging
+import uuid
+from datetime import datetime, timedelta
+from typing import Any, Optional
+
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime
-from flask import Flask, render_template, request, jsonify, g, session, send_file, make_response
+from flask import (
+    Flask, render_template, request, jsonify,
+    g, session, send_file, make_response, Response
+)
+from flask_compress import Compress
+from flask_caching import Cache
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
+# --- Google Cloud Logging (graceful degradation) ---
+try:
+    import google.cloud.logging as cloud_logging
+    cloud_client = cloud_logging.Client()
+    cloud_client.setup_logging()
+    logger = logging.getLogger('ledgerlogic')
+    logger.info('Google Cloud Logging initialized')
+except Exception:
+    logger = logging.getLogger('ledgerlogic')
+    logging.basicConfig(level=logging.INFO)
+    logger.info('Using standard Python logging (Cloud Logging unavailable)')
+
+# --- App Initialization ---
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
+
+# Session hardening
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# Efficiency: gzip compression on all responses
+Compress(app)
+
+# Efficiency: server-side caching (60s TTL)
+cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache', 'CACHE_DEFAULT_TIMEOUT': 60})
+
+# Security: rate limiting
+limiter = Limiter(get_remote_address, app=app, default_limits=["200 per minute"])
+
+# --- Google Cloud Config ---
+GCP_PROJECT = os.environ.get('GCP_PROJECT', '')
+BQ_DATASET = os.environ.get('BIGQUERY_DATASET', 'ledgerlogic_analytics')
+
 DATABASE = 'voting.db'
+
+# --- BIGQUERY CLIENT (graceful degradation) ---
+bq_client = None
+try:
+    from google.cloud import bigquery
+    bq_client = bigquery.Client(project=GCP_PROJECT) if GCP_PROJECT else None
+    if bq_client:
+        logger.info('BigQuery client initialized (project=%s)', GCP_PROJECT)
+except Exception as e:
+    logger.warning('BigQuery unavailable: %s', e)
+    bq_client = None
+
+# --- NATURAL LANGUAGE API CLIENT (graceful degradation) ---
+nl_client = None
+try:
+    from google.cloud import language_v1
+    nl_client = language_v1.LanguageServiceClient()
+    logger.info('Natural Language API client initialized')
+except Exception as e:
+    logger.warning('Natural Language API unavailable: %s', e)
+    nl_client = None
 
 # --- FIREBASE INTEGRATION ---
 try:
     cred = credentials.Certificate("firebase-key.json")
     firebase_admin.initialize_app(cred)
     db_firestore = firestore.client()
-    print("Firebase Initialized Successfully!")
+    logger.info('Firebase Initialized Successfully')
 except Exception as e:
-    print(f"Firebase Init Error: {e}")
+    logger.warning('Firebase Init Error: %s', e)
     db_firestore = None
 
-def log_system_active():
+
+def log_system_active() -> None:
+    """Send a heartbeat pulse to Firebase Firestore to confirm server liveness."""
     if db_firestore:
         try:
             doc_ref = db_firestore.collection('system_logs').document('heartbeat')
@@ -31,31 +103,158 @@ def log_system_active():
                 'last_pulse': datetime.now(),
                 'server': 'Local-Development-Node'
             })
-            print("Firebase Heartbeat Sent!")
+            logger.info('Firebase Heartbeat Sent')
         except Exception as e:
-            print(f"Firebase Heartbeat Error: {e}")
+            logger.error('Firebase Heartbeat Error: %s', e)
+
 
 log_system_active()
 
-def get_db():
+
+def get_db() -> sqlite3.Connection:
+    """Return the per-request SQLite database connection."""
     db = getattr(g, '_database', None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE)
         db.row_factory = sqlite3.Row
     return db
 
+
 @app.teardown_appcontext
-def close_connection(exception):
+def close_connection(exception: Optional[BaseException]) -> None:
+    """Close the SQLite connection at the end of the request."""
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
 
-def log_event(log_type, message):
+
+def log_event(log_type: str, message: str) -> None:
+    """Insert an event into the local audit log."""
     db = get_db()
     db.execute('INSERT INTO logs (type, message) VALUES (?, ?)', (log_type, message))
     db.commit()
 
-def init_db():
+
+# --- BIGQUERY STREAMING HELPERS ---
+
+def stream_vote_to_bigquery(name_hashed: str, candidate: str,
+                            constituency_id: int, session_id: str = '') -> None:
+    """Stream a vote record to BigQuery votes_raw table (non-blocking best-effort).
+
+    Falls back silently if BigQuery is unavailable.
+    """
+    if not bq_client:
+        return
+    try:
+        table_ref = f'{GCP_PROJECT}.{BQ_DATASET}.votes_raw'
+        row = {
+            'vote_id': str(uuid.uuid4()),
+            'name_hashed': name_hashed,
+            'candidate': candidate,
+            'constituency_id': constituency_id,
+            'party': candidate,
+            'timestamp': datetime.utcnow().isoformat(),
+            'session_id': session_id
+        }
+        errors = bq_client.insert_rows_json(table_ref, [row])
+        if errors:
+            logger.error('BigQuery vote insert errors: %s', errors)
+        else:
+            logger.info('Vote streamed to BigQuery: %s', row['vote_id'])
+    except Exception as e:
+        logger.warning('BigQuery vote stream error (non-fatal): %s', e)
+
+
+def stream_security_event_to_bigquery(event_type: str, masked_ip: str = '',
+                                       path: str = '', payload_sig: str = 'BLOCKED',
+                                       severity: str = 'UNCLASSIFIED',
+                                       sentiment_score: float = 0.0) -> None:
+    """Stream a security event to BigQuery security_events table (non-blocking best-effort).
+
+    Falls back silently if BigQuery is unavailable.
+    """
+    if not bq_client:
+        return
+    try:
+        table_ref = f'{GCP_PROJECT}.{BQ_DATASET}.security_events'
+        row = {
+            'event_id': str(uuid.uuid4()),
+            'event_type': event_type,
+            'masked_ip': masked_ip,
+            'path': path,
+            'payload_signature': payload_sig,
+            'severity': severity,
+            'sentiment_score': sentiment_score,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        errors = bq_client.insert_rows_json(table_ref, [row])
+        if errors:
+            logger.error('BigQuery security insert errors: %s', errors)
+        else:
+            logger.info('Security event archived to BigQuery: %s', row['event_id'])
+    except Exception as e:
+        logger.warning('BigQuery security stream error (non-fatal): %s', e)
+
+
+# --- NATURAL LANGUAGE API — THREAT CLASSIFICATION ---
+
+def classify_threat_severity(message: str) -> dict:
+    """Use Cloud Natural Language API to classify threat severity.
+
+    Returns dict with 'severity' (LOW/MEDIUM/HIGH/CRITICAL) and 'sentiment_score'.
+    Falls back to heuristic classification if NL API is unavailable.
+    """
+    # Heuristic fallback keywords
+    critical_keywords = ['sql injection', 'drop table', 'union select', 'etc/passwd']
+    high_keywords = ['duplicate vote', 'brute-force', 'lockout', 'unauthorized']
+    medium_keywords = ['invalid otp', 'expired otp', 'rate limit']
+
+    lower_msg = message.lower()
+
+    if not nl_client:
+        # Heuristic classification
+        if any(kw in lower_msg for kw in critical_keywords):
+            return {'severity': 'CRITICAL', 'sentiment_score': -0.9}
+        if any(kw in lower_msg for kw in high_keywords):
+            return {'severity': 'HIGH', 'sentiment_score': -0.7}
+        if any(kw in lower_msg for kw in medium_keywords):
+            return {'severity': 'MEDIUM', 'sentiment_score': -0.4}
+        return {'severity': 'LOW', 'sentiment_score': -0.2}
+
+    try:
+        document = language_v1.types.Document(
+            content=message,
+            type_=language_v1.types.Document.Type.PLAIN_TEXT
+        )
+        sentiment = nl_client.analyze_sentiment(
+            request={'document': document}
+        ).document_sentiment
+
+        score = sentiment.score
+        magnitude = sentiment.magnitude
+
+        # Map NLP sentiment to threat severity
+        if score < -0.6 and magnitude > 0.8:
+            severity = 'CRITICAL'
+        elif score < -0.3:
+            severity = 'HIGH'
+        elif score < 0.0:
+            severity = 'MEDIUM'
+        else:
+            severity = 'LOW'
+
+        logger.info('NLP threat classification: severity=%s score=%.2f mag=%.2f',
+                     severity, score, magnitude)
+        return {'severity': severity, 'sentiment_score': score}
+    except Exception as e:
+        logger.warning('NL API classification error (using heuristic): %s', e)
+        if any(kw in lower_msg for kw in critical_keywords):
+            return {'severity': 'CRITICAL', 'sentiment_score': -0.9}
+        return {'severity': 'UNCLASSIFIED', 'sentiment_score': 0.0}
+
+
+def init_db() -> None:
+    """Initialize SQLite tables and seed 234 constituency records if empty."""
     with app.app_context():
         db = get_db()
         # Initialize tables
@@ -101,7 +300,7 @@ def init_db():
                         match = re.search(r'(?:^|\t)(\d+)\s+([^\t\n]+)', line)
                         if match:
                             mapping[int(match.group(1))] = match.group(2).strip()
-            except:
+            except (FileNotFoundError, ValueError):
                 pass
 
             for i in range(1, 235):
@@ -127,8 +326,25 @@ def security_monitor():
         ip_parts = (request.remote_addr or '0.0.0.0').split('.')
         masked_ip = 'XXX.XXX.' + ip_parts[-1] if len(ip_parts) >= 1 else 'XXX.XXX.0'
 
-        # Log to local DB
-        log_event('attack_happened', f'THREAT: Malicious Input Detected | IP: {masked_ip} | Path: {request.path}')
+        threat_msg = f'THREAT: Malicious Input Detected | IP: {masked_ip} | Path: {request.path}'
+
+        # NLP-powered threat classification (Cloud Natural Language API)
+        classification = classify_threat_severity(threat_msg)
+        severity = classification['severity']
+        sentiment_score = classification['sentiment_score']
+
+        # Log to local DB with severity
+        log_event('attack_happened', f'{threat_msg} | Severity: {severity}')
+
+        # Stream to BigQuery (security_events table)
+        stream_security_event_to_bigquery(
+            event_type='MALICIOUS_INPUT',
+            masked_ip=masked_ip,
+            path=request.path,
+            payload_sig='BLOCKED',
+            severity=severity,
+            sentiment_score=sentiment_score
+        )
 
         # Log to Firebase for Live Threat Telemetry
         if db_firestore:
@@ -138,30 +354,57 @@ def security_monitor():
                     'ip_masked': masked_ip,
                     'timestamp': datetime.now(),
                     'path': request.path,
-                    'payload_signature': 'BLOCKED'
+                    'payload_signature': 'BLOCKED',
+                    'severity': severity,
+                    'sentiment_score': sentiment_score
                 })
             except Exception as e:
-                print(f"Firebase hack log error: {e}")
+                logger.error('Firebase hack log error: %s', e)
 
         return "Security Violation Logged.", 403
 
 @app.before_request
-def log_request_info():
+def log_request_info() -> None:
+    """Log main route access to the audit trail."""
     if request.path == '/' and request.method == 'GET':
         log_event('changes_happened', 'Main Route Accessed')
 
+
+@app.after_request
+def add_security_headers(response: Response) -> Response:
+    """Inject security headers on every response (CSP, X-Frame, etc.)."""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://www.gstatic.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "connect-src 'self' https://firestore.googleapis.com; "
+        "img-src 'self' data:;"
+    )
+    return response
+
 @app.route('/')
-def index():
+def index() -> Response:
+    """Serve the main dashboard HTML with cache headers."""
     response = make_response(render_template('index.html'))
-    # Efficiency Boost: Cache static elements for 5 minutes for mobile low-bandwidth networks
     response.headers['Cache-Control'] = 'public, max-age=300'
     return response
 
-@app.route('/api/map')
-def api_map():
-    return send_file('static/tn_map_processed.svg', mimetype='image/svg+xml')
 
-def generate_mock_details(c):
+@app.route('/api/map')
+def api_map() -> Response:
+    """Serve the processed SVG map with long-lived cache headers."""
+    response = make_response(send_file('static/tn_map_processed.svg', mimetype='image/svg+xml'))
+    response.headers['Cache-Control'] = 'public, max-age=3600'
+    return response
+
+
+def generate_mock_details(c: dict) -> dict:
+    """Generate deterministic mock candidate details for a constituency."""
     seed = int(hashlib.md5(str(c['id']).encode()).hexdigest(), 16)
     random.seed(seed)
     
@@ -202,8 +445,11 @@ def generate_mock_details(c):
         'total_candidates': random.randint(10, 30)
     }
 
+
 @app.route('/api/data')
-def api_data():
+@cache.cached(timeout=60, query_string=True)
+def api_data() -> Response:
+    """Return all 234 constituencies, party stats, votes, and audit logs."""
     db = get_db()
     votes = db.execute('SELECT * FROM votes ORDER BY timestamp DESC LIMIT 10').fetchall()
     logs = db.execute('SELECT * FROM logs ORDER BY timestamp DESC LIMIT 30').fetchall()
@@ -243,8 +489,11 @@ def api_data():
         'total_votes': total_votes
     })
 
+
 @app.route('/api/request_otp', methods=['POST'])
-def api_request_otp():
+@limiter.limit('5 per minute')
+def api_request_otp() -> Response:
+    """Generate a 4-digit OTP and store it in the session with a 5-minute expiry."""
     data = request.json
     name = data.get('name', '').strip()
     mobile = data.get('mobile', '').strip()
@@ -262,30 +511,66 @@ def api_request_otp():
         return jsonify({'error': 'Missing fields'}), 400
         
     otp = ''.join(random.choices(string.digits, k=4))
-    session['pending_user'] = {'name': name, 'mobile': mobile, 'otp': otp}
+    session['pending_user'] = {
+        'name': name,
+        'mobile': mobile,
+        'otp': otp,
+        'otp_created': datetime.now().isoformat(),
+        'otp_attempts': 0
+    }
     
     log_event('changes_happened', f"Generated OTP for {name}: {otp}")
     return jsonify({'success': True, 'message': 'OTP generated. Check System Heartbeat logs.'})
 
+
 @app.route('/api/verify_otp', methods=['POST'])
-def api_verify_otp():
+@limiter.limit('10 per minute')
+def api_verify_otp() -> Response:
+    """Verify the submitted OTP against the session-stored value.
+    Enforces 5-minute expiry and locks out after 3 failed attempts."""
     data = request.json
     otp_submitted = data.get('otp', '').strip()
     
     pending = session.get('pending_user')
     if not pending:
         return jsonify({'error': 'No pending authentication'}), 400
-        
+
+    # OTP expiry check (5 minutes)
+    otp_created = datetime.fromisoformat(pending.get('otp_created', datetime.now().isoformat()))
+    if datetime.now() - otp_created > timedelta(minutes=5):
+        session.pop('pending_user', None)
+        log_event('attack_happened', f"THREAT: Expired OTP used | {pending['name']}")
+        return jsonify({'error': 'OTP expired. Please request a new one.'}), 401
+
+    # Brute-force lockout (3 attempts max)
+    attempts = pending.get('otp_attempts', 0)
+    if attempts >= 3:
+        session.pop('pending_user', None)
+        log_event('attack_happened', f"THREAT: OTP brute-force lockout | {pending['name']}")
+        return jsonify({'error': 'Too many failed attempts. Please request a new OTP.'}), 429
+
     if otp_submitted == pending['otp']:
         session['user'] = {'name': pending['name'], 'mobile': pending['mobile']}
+        session.pop('pending_user', None)
         log_event('changes_happened', f"Identity Verified for {pending['name']}")
         return jsonify({'success': True})
     else:
-        log_event('attack_happened', f"THREAT: Invalid OTP | {pending['name']} | {datetime.now().isoformat()}")
+        pending['otp_attempts'] = attempts + 1
+        session['pending_user'] = pending
+        session.modified = True
+        log_event('attack_happened', f"THREAT: Invalid OTP (attempt {attempts + 1}) | {pending['name']}")
+        stream_security_event_to_bigquery(
+            event_type='INVALID_OTP',
+            path='/api/verify_otp',
+            severity=classify_threat_severity(f'Invalid OTP attempt {attempts + 1}')['severity']
+        )
         return jsonify({'error': 'Invalid OTP'}), 401
 
+
 @app.route('/api/vote', methods=['POST'])
-def api_vote():
+@limiter.limit('3 per minute')
+def api_vote() -> Response:
+    """Cast a vote (requires OTP-authenticated session). Syncs to Firestore and BigQuery."""
     user = session.get('user')
     if not user:
         log_event('attack_happened', f"THREAT: Unauthorized vote call | Unknown | {datetime.now().isoformat()}")
@@ -325,7 +610,16 @@ def api_vote():
                     'timestamp': datetime.now()
                 })
             except Exception as e:
-                print(f"Firebase Vote Sync Error: {e}")
+                logger.error('Firebase Vote Sync Error: %s', e)
+
+        # Stream to BigQuery (votes_raw table)
+        name_hash = hashlib.sha256(name.encode()).hexdigest()[:10]
+        stream_vote_to_bigquery(
+            name_hashed=name_hash,
+            candidate=candidate,
+            constituency_id=constituency_id,
+            session_id=hashlib.md5(app.secret_key.encode() if isinstance(app.secret_key, str) else app.secret_key).hexdigest()[:8]
+        )
         
         # Clear session to prevent multiple votes
         session.pop('user', None)
@@ -334,10 +628,17 @@ def api_vote():
         return jsonify({'success': True})
     except sqlite3.IntegrityError:
         log_event('attack_happened', f"THREAT: Duplicate Vote Attempt | {name} | {datetime.now().isoformat()}")
+        stream_security_event_to_bigquery(
+            event_type='DUPLICATE_VOTE',
+            path='/api/vote',
+            severity='HIGH'
+        )
         return jsonify({'error': 'You have already voted!'}), 403
 
+
 @app.route('/api/source')
-def api_source():
+def api_source() -> Response:
+    """Expose the full server source code for radical transparency auditing."""
     try:
         with open(__file__, 'r') as f:
             source = f.read()
@@ -345,8 +646,10 @@ def api_source():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/api/download_logs')
-def api_download_logs():
+def api_download_logs() -> Response:
+    """Export audit logs as a downloadable .txt file."""
     log_type = request.args.get('type', 'all')
     db = get_db()
     
@@ -363,7 +666,6 @@ def api_download_logs():
     for log in logs:
         content += f"[{log['timestamp']}] [{log['type']}] {log['message']}\n"
     
-    from flask import Response
     return Response(
         content,
         mimetype='text/plain',
@@ -372,7 +674,7 @@ def api_download_logs():
 
 # --- TELECASTING: Live Count Endpoint (High-Efficiency, Lightweight) ---
 @app.route('/api/live-count')
-def api_live_count():
+def api_live_count() -> Response:
     """Lightweight endpoint for real-time telecasting. 
     Returns only the total vote count for maximum mobile efficiency."""
     db = get_db()
@@ -388,11 +690,11 @@ def api_live_count():
                 'status': 'TELECASTING'
             })
         except Exception as e:
-            print(f"Telecast sync error: {e}")
+            logger.error('Telecast sync error: %s', e)
     
     return jsonify({'total_votes': total, 'status': 'live'})
 
-# --- GEMINI 1.5 FLASH CHAT ENDPOINT (ChatSession with Adaptive Memory) ---
+# --- VERTEX AI / GEMINI CHAT ENDPOINT (ChatSession with Adaptive Memory) ---
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
@@ -415,28 +717,55 @@ CHAT_SYSTEM_PROMPT = CHAT_SYSTEM_INSTRUCTION + """\n\nAdditional rules:
 
 # Lazy-initialized Gemini model (ChatSession-based)
 _gemini_model = None
+_gemini_backend = None  # 'vertex_ai' or 'generativeai'
+
 
 def _get_gemini_model():
-    """Lazy-init the Gemini model with ChatSession support."""
-    global _gemini_model
+    """Lazy-init the Gemini model — tries Vertex AI SDK first, then google-generativeai.
+
+    Vertex AI SDK provides Google-native model monitoring, prompt logging,
+    and safety filters via the Cloud Console. Falls back to the direct
+    google-generativeai SDK for local development without GCP credentials.
+    """
+    global _gemini_model, _gemini_backend
     if _gemini_model is not None:
         return _gemini_model
 
-    if not GEMINI_API_KEY:
-        return None
+    # --- Strategy 1: Vertex AI SDK (preferred for Cloud Run / GCP) ---
+    if GCP_PROJECT:
+        try:
+            import vertexai
+            from vertexai.generative_models import GenerativeModel
 
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        _gemini_model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
-            system_instruction=CHAT_SYSTEM_INSTRUCTION,
-            generation_config={'temperature': 0.2, 'max_output_tokens': 500, 'top_p': 0.9}
-        )
-        return _gemini_model
-    except Exception as e:
-        print(f"Gemini SDK init error: {e}")
-        return None
+            vertexai.init(project=GCP_PROJECT, location='us-central1')
+            _gemini_model = GenerativeModel(
+                'gemini-1.5-flash',
+                system_instruction=CHAT_SYSTEM_INSTRUCTION,
+                generation_config={'temperature': 0.2, 'max_output_tokens': 500, 'top_p': 0.9}
+            )
+            _gemini_backend = 'vertex_ai'
+            logger.info('Vertex AI Gemini 1.5 Flash initialized (project=%s)', GCP_PROJECT)
+            return _gemini_model
+        except Exception as e:
+            logger.warning('Vertex AI init failed, trying google-generativeai fallback: %s', e)
+
+    # --- Strategy 2: google-generativeai SDK (local dev with API key) ---
+    if GEMINI_API_KEY:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=GEMINI_API_KEY)
+            _gemini_model = genai.GenerativeModel(
+                model_name='gemini-1.5-flash',
+                system_instruction=CHAT_SYSTEM_INSTRUCTION,
+                generation_config={'temperature': 0.2, 'max_output_tokens': 500, 'top_p': 0.9}
+            )
+            _gemini_backend = 'generativeai'
+            logger.info('google-generativeai Gemini 1.5 Flash initialized (API key)')
+            return _gemini_model
+        except Exception as e:
+            logger.error('Gemini SDK init error: %s', e)
+
+    return None
 
 
 @app.route('/api/chat', methods=['POST'])
@@ -478,7 +807,7 @@ def api_chat():
                 return jsonify({'reply': reply_text})
 
         except Exception as e:
-            print(f"Gemini ChatSession Error: {e}")
+            logger.error('Gemini ChatSession Error: %s', e)
             # Fall through to local fallback
 
     # --- Local keyword fallback ---
@@ -535,5 +864,204 @@ def _local_chat_fallback(query):
     return BLO
 
 
+# --- BIGQUERY-POWERED ANALYTICS ENDPOINT ---
+
+@app.route('/api/analytics')
+@cache.cached(timeout=120)
+def api_analytics() -> Response:
+    """Query BigQuery (or SQLite fallback) for advanced election analytics.
+
+    Returns total votes, top contested constituencies, hourly vote rate,
+    and attack frequency — powering the Analytics panel in the dashboard.
+    """
+    # --- Strategy 1: BigQuery (production) ---
+    if bq_client:
+        try:
+            # Total votes from BigQuery
+            total_q = f"SELECT COUNT(*) as total FROM `{GCP_PROJECT}.{BQ_DATASET}.votes_raw`"
+            total_votes = list(bq_client.query(total_q).result())[0].total
+
+            # Top 5 most contested constituencies (smallest margin)
+            contested_q = f"""
+                SELECT constituency_id, COUNT(*) as votes,
+                       COUNT(DISTINCT candidate) as candidates
+                FROM `{GCP_PROJECT}.{BQ_DATASET}.votes_raw`
+                GROUP BY constituency_id
+                HAVING candidates > 1
+                ORDER BY votes DESC
+                LIMIT 5
+            """
+            contested = [
+                {'constituency_id': r.constituency_id, 'votes': r.votes, 'candidates': r.candidates}
+                for r in bq_client.query(contested_q).result()
+            ]
+
+            # Hourly vote rate (last 24h)
+            hourly_q = f"""
+                SELECT TIMESTAMP_TRUNC(timestamp, HOUR) as hour, COUNT(*) as votes
+                FROM `{GCP_PROJECT}.{BQ_DATASET}.votes_raw`
+                WHERE timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+                GROUP BY hour ORDER BY hour
+            """
+            hourly_trend = [
+                {'hour': r.hour.isoformat(), 'votes': r.votes}
+                for r in bq_client.query(hourly_q).result()
+            ]
+
+            # Attack frequency
+            attack_q = f"""
+                SELECT event_type, severity, COUNT(*) as count
+                FROM `{GCP_PROJECT}.{BQ_DATASET}.security_events`
+                GROUP BY event_type, severity
+                ORDER BY count DESC
+            """
+            attack_stats = [
+                {'event_type': r.event_type, 'severity': r.severity, 'count': r.count}
+                for r in bq_client.query(attack_q).result()
+            ]
+
+            logger.info('Analytics served from BigQuery')
+            return jsonify({
+                'source': 'bigquery',
+                'total_votes': total_votes,
+                'top_contested': contested,
+                'hourly_trend': hourly_trend,
+                'attack_stats': attack_stats
+            })
+        except Exception as e:
+            logger.warning('BigQuery analytics failed, falling back to SQLite: %s', e)
+
+    # --- Strategy 2: SQLite fallback (local development) ---
+    db = get_db()
+    total_votes = db.execute('SELECT COUNT(*) as total FROM votes').fetchone()['total']
+    consts = db.execute('SELECT * FROM constituencies ORDER BY votes ASC LIMIT 5').fetchall()
+    contested = [{'constituency_id': c['id'], 'name': c['name'], 'votes': c['votes']} for c in consts]
+
+    logs = db.execute(
+        "SELECT type, COUNT(*) as count FROM logs WHERE type='attack_happened' GROUP BY type"
+    ).fetchall()
+    attack_stats = [{'event_type': l['type'], 'severity': 'UNCLASSIFIED', 'count': l['count']} for l in logs]
+
+    return jsonify({
+        'source': 'sqlite',
+        'total_votes': total_votes,
+        'top_contested': contested,
+        'hourly_trend': [],
+        'attack_stats': attack_stats
+    })
+
+
+# --- VERTEX AI — CONSTITUENCY INSIGHT ENDPOINT ---
+
+@app.route('/api/constituency-insight', methods=['POST'])
+def api_constituency_insight() -> Response:
+    """AI-powered constituency insight using BigQuery data + Vertex AI Gemini.
+
+    Input: constituency_id
+    Flow: Fetch data from BigQuery/SQLite → Gemini prompt → 2-sentence insight.
+    Falls back to a template-based response if Gemini is unavailable.
+    """
+    data = request.json or {}
+    constituency_id = data.get('constituency_id')
+    if not constituency_id:
+        return jsonify({'error': 'constituency_id required'}), 400
+
+    constituency_id = int(constituency_id)
+
+    # 1. Fetch constituency data (BigQuery or SQLite)
+    constituency_data = _get_constituency_data(constituency_id)
+    if not constituency_data:
+        return jsonify({'error': 'Constituency not found'}), 404
+
+    # 2. Generate AI insight via Gemini
+    model = _get_gemini_model()
+    if model:
+        try:
+            insight_prompt = (
+                f"Given this constituency data: {constituency_data}, provide a "
+                f"2-sentence plain-language election insight for a citizen voter. "
+                f"Focus on competitiveness and turnout. Do not use markdown."
+            )
+            chat = model.start_chat(history=[])
+            response = chat.send_message(insight_prompt)
+            insight = response.text.strip()
+            logger.info('AI insight generated for constituency %d via %s', constituency_id, _gemini_backend)
+            return jsonify({
+                'constituency_id': constituency_id,
+                'data': constituency_data,
+                'insight': insight,
+                'ai_backend': _gemini_backend or 'unknown'
+            })
+        except Exception as e:
+            logger.warning('Gemini insight generation failed: %s', e)
+
+    # 3. Template fallback
+    name = constituency_data.get('name', f'Constituency {constituency_id}')
+    votes = constituency_data.get('votes', 0)
+    party = constituency_data.get('party', 'Unknown')
+    fallback_insight = (
+        f"{name} currently shows {votes:,} total votes with {party} in the lead. "
+        f"Check the live dashboard for real-time updates on this constituency's race."
+    )
+    return jsonify({
+        'constituency_id': constituency_id,
+        'data': constituency_data,
+        'insight': fallback_insight,
+        'ai_backend': 'template_fallback'
+    })
+
+
+def _get_constituency_data(constituency_id: int) -> Optional[dict]:
+    """Fetch constituency data from BigQuery (preferred) or SQLite fallback."""
+    # BigQuery first
+    if bq_client:
+        try:
+            q = f"""
+                SELECT constituency_id, candidate as party, COUNT(*) as votes
+                FROM `{GCP_PROJECT}.{BQ_DATASET}.votes_raw`
+                WHERE constituency_id = {constituency_id}
+                GROUP BY constituency_id, candidate
+                ORDER BY votes DESC LIMIT 1
+            """
+            results = list(bq_client.query(q).result())
+            if results:
+                r = results[0]
+                return {
+                    'id': r.constituency_id,
+                    'party': r.party,
+                    'votes': r.votes,
+                    'source': 'bigquery'
+                }
+        except Exception as e:
+            logger.warning('BigQuery constituency fetch failed: %s', e)
+
+    # SQLite fallback
+    db = get_db()
+    c = db.execute('SELECT * FROM constituencies WHERE id = ?', (constituency_id,)).fetchone()
+    if c:
+        return {
+            'id': c['id'],
+            'name': c['name'],
+            'party': c['party'],
+            'votes': c['votes'],
+            'source': 'sqlite'
+        }
+    return None
+
+
+# --- ERROR HANDLERS ---
+@app.errorhandler(404)
+def not_found(e: Exception) -> tuple:
+    """Return JSON 404 for missing routes."""
+    return jsonify({'error': 'Resource not found'}), 404
+
+
+@app.errorhandler(500)
+def internal_error(e: Exception) -> tuple:
+    """Return JSON 500 for internal server errors."""
+    logger.error('Internal server error: %s', e)
+    return jsonify({'error': 'Internal server error'}), 500
+
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=os.environ.get('FLASK_DEBUG', 'false').lower() == 'true', port=5000)
