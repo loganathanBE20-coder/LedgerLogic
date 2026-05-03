@@ -41,3 +41,6 @@ LedgerLogic_TN2026.zip
 
 # Firebase Key (Treat as Secret)
 firebase-key.json
+
+# Environment Variables (API Keys, Secrets)
+.env

@@ -48,7 +48,9 @@
         const fab = document.createElement('button');
         fab.id = 'chat-fab';
         fab.className = 'chat-fab';
-        fab.setAttribute('aria-label', 'Open Electoral Assistant Chat');
+        fab.setAttribute('aria-label', 'Electoral Assistant Chat');
+        fab.setAttribute('tabindex', '0');
+        fab.setAttribute('role', 'button');
         fab.innerHTML = `
             <svg class="chat-fab-icon chat-fab-icon-msg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -65,6 +67,9 @@
         const win = document.createElement('div');
         win.id = 'chat-window';
         win.className = 'chat-window';
+        win.setAttribute('role', 'dialog');
+        win.setAttribute('aria-label', 'Electoral Assistant Chat Window');
+        win.setAttribute('tabindex', '0');
         win.innerHTML = `
             <div class="chat-window-header">
                 <div class="chat-window-header-left">
@@ -82,38 +87,40 @@
                         </div>
                     </div>
                 </div>
-                <button class="chat-window-close" id="chat-close-btn" aria-label="Close Chat">
+                <button class="chat-window-close" id="chat-close-btn" aria-label="Close Chat" tabindex="0">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                     </svg>
                 </button>
             </div>
 
-            <div class="chat-messages" id="chat-messages"></div>
+            <div class="chat-messages" id="chat-messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
 
             <div class="chat-menu" id="chat-menu">
-                <button class="chat-menu-btn chat-menu-btn-security" data-topic="security">
+                <button class="chat-menu-btn chat-menu-btn-security" data-topic="security" tabindex="0">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                     Security: Why OTP?
                 </button>
-                <button class="chat-menu-btn chat-menu-btn-transparency" data-topic="transparency">
+                <button class="chat-menu-btn chat-menu-btn-transparency" data-topic="transparency" tabindex="0">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
                     Transparency: The Ledger
                 </button>
-                <button class="chat-menu-btn chat-menu-btn-legal" data-topic="legal">
+                <button class="chat-menu-btn chat-menu-btn-legal" data-topic="legal" tabindex="0">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>
                     My Legal Rights
                 </button>
-                <button class="chat-menu-btn chat-menu-btn-other" data-topic="other">
+                <button class="chat-menu-btn chat-menu-btn-other" data-topic="other" tabindex="0">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
                     Other
                 </button>
             </div>
 
             <div class="chat-input-area" id="chat-input-area">
+                <label for="chat-input" class="sr-only">Type your election question</label>
                 <input type="text" class="chat-input" id="chat-input"
-                       placeholder="Ask about the election..." autocomplete="off" />
-                <button class="chat-send-btn" id="chat-send-btn" aria-label="Send Message">
+                       placeholder="Ask about the election..." autocomplete="off"
+                       aria-label="Type your election question" tabindex="0" />
+                <button class="chat-send-btn" id="chat-send-btn" aria-label="Send Message" tabindex="0">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>

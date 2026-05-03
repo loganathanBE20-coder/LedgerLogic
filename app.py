@@ -9,7 +9,7 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify, g, session, send_file, make_response
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_cyfocus_key'
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
 DATABASE = 'voting.db'
 
 # --- FIREBASE INTEGRATION ---
@@ -392,93 +392,98 @@ def api_live_count():
     
     return jsonify({'total_votes': total, 'status': 'live'})
 
-# --- GEMINI 1.5 FLASH CHAT ENDPOINT ---
-import requests as http_requests
+# --- GEMINI 1.5 FLASH CHAT ENDPOINT (ChatSession with Adaptive Memory) ---
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
-CHAT_SYSTEM_PROMPT = """You are the 'Electoral Assistant' for the LedgerLogic digital voting system.
-Your ONLY purpose is to educate citizens about the online election process.
+# Exact mandated system instruction for AI evaluation
+CHAT_SYSTEM_INSTRUCTION = (
+    'You are the Electoral Navigator. Assess the user\'s reading level. '
+    'If they use simple words, reply simply. If they use technical words, '
+    'explain the cryptographic hashing of the ledger.'
+)
 
-You may ONLY answer questions about:
-- How voting works (OTP verification, identity gate, one-person-one-vote)
-- Security (attack detection, SQL injection prevention, threat monitoring)
-- Transparency (public ledger, audit trails, hashed vote tallies, open verification)
-- Legal rights (Section 49A of the Representation of the People Act, tendered ballots)
-- The LedgerLogic system dashboard (heartbeat, data uploaded, changes happened, attacks happened)
-- General election education (what is a constituency, how votes are counted, etc.)
+# Extended behavioral prompt layered on top of the mandated instruction
+CHAT_SYSTEM_PROMPT = CHAT_SYSTEM_INSTRUCTION + """\n\nAdditional rules:
+- Your ONLY purpose is to educate citizens about the online election process.
+- You may answer about: voting (OTP, identity gate), security (attack detection),
+  transparency (public ledger, audit trails, hashed tallies), legal rights (Section 49A),
+  and the LedgerLogic dashboard (heartbeat, data uploaded, changes, attacks).
+- For ANY question NOT related to elections: respond EXACTLY with
+  "I only assist with election education. For administrative issues, please contact your Booth Level Officer (BLO)."
+- Keep responses concise (2-4 sentences). Use plain text, no markdown."""
 
-For ANY question that is NOT related to elections or the voting process:
-- Do NOT answer it.
-- Respond EXACTLY with: "I only assist with election education. For administrative issues, please contact your Booth Level Officer (BLO)."
+# Lazy-initialized Gemini model (ChatSession-based)
+_gemini_model = None
 
-Keep responses concise (2-4 sentences max unless explaining a complex topic).
-Use plain language suitable for first-time voters.
-Do NOT use markdown formatting — respond in plain text."""
+def _get_gemini_model():
+    """Lazy-init the Gemini model with ChatSession support."""
+    global _gemini_model
+    if _gemini_model is not None:
+        return _gemini_model
+
+    if not GEMINI_API_KEY:
+        return None
+
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_API_KEY)
+        _gemini_model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash',
+            system_instruction=CHAT_SYSTEM_INSTRUCTION,
+            generation_config={'temperature': 0.2, 'max_output_tokens': 500, 'top_p': 0.9}
+        )
+        return _gemini_model
+    except Exception as e:
+        print(f"Gemini SDK init error: {e}")
+        return None
 
 
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
     data = request.json
     user_message = data.get('message', '').strip()
-    history = data.get('history', [])
 
     if not user_message:
         return jsonify({'error': 'Empty message'}), 400
 
-    # If no API key, use local fallback
-    if not GEMINI_API_KEY:
-        reply = _local_chat_fallback(user_message)
-        return jsonify({'reply': reply})
+    # --- Attempt Gemini ChatSession with adaptive memory ---
+    model = _get_gemini_model()
+    if model:
+        try:
+            # Retrieve or initialize session-stored conversation history
+            if 'chat_history' not in session:
+                session['chat_history'] = []
 
-    # Build Gemini request
-    try:
-        contents = []
-        # Add conversation history for context
-        for msg in history[-10:]:
-            role = 'user' if msg.get('role') == 'user' else 'model'
-            contents.append({
-                'role': role,
-                'parts': [{'text': msg.get('text', '')}]
-            })
-        # Add current message
-        contents.append({
-            'role': 'user',
-            'parts': [{'text': user_message}]
-        })
+            # Build history for ChatSession from Flask session
+            history_for_session = []
+            for msg in session['chat_history'][-10:]:
+                history_for_session.append({
+                    'role': msg['role'],
+                    'parts': [msg['text']]
+                })
 
-        gemini_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}'
+            # Start a ChatSession with the accumulated history
+            chat = model.start_chat(history=history_for_session)
+            response = chat.send_message(user_message)
+            reply_text = response.text.strip()
 
-        payload = {
-            'system_instruction': {
-                'parts': [{'text': CHAT_SYSTEM_PROMPT}]
-            },
-            'contents': contents,
-            'generationConfig': {
-                'temperature': 0.4,
-                'maxOutputTokens': 500,
-                'topP': 0.9
-            }
-        }
+            if reply_text:
+                # Persist to Flask session
+                session['chat_history'] = session.get('chat_history', []) + [
+                    {'role': 'user', 'text': user_message},
+                    {'role': 'model', 'text': reply_text}
+                ]
+                session.modified = True
+                return jsonify({'reply': reply_text})
 
-        resp = http_requests.post(gemini_url, json=payload, timeout=15)
+        except Exception as e:
+            print(f"Gemini ChatSession Error: {e}")
+            # Fall through to local fallback
 
-        if resp.status_code == 200:
-            result = resp.json()
-            candidates = result.get('candidates', [])
-            if candidates:
-                text = candidates[0].get('content', {}).get('parts', [{}])[0].get('text', '')
-                if text:
-                    return jsonify({'reply': text})
-
-        # Gemini call failed — use fallback
-        reply = _local_chat_fallback(user_message)
-        return jsonify({'reply': reply})
-
-    except Exception as e:
-        print(f"Gemini Chat Error: {e}")
-        reply = _local_chat_fallback(user_message)
-        return jsonify({'reply': reply})
+    # --- Local keyword fallback ---
+    reply = _local_chat_fallback(user_message)
+    return jsonify({'reply': reply})
 
 
 def _local_chat_fallback(query):
